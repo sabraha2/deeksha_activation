@@ -12,7 +12,7 @@ from backbones import get_model
 
 def inference(network, patch_size, stride, model_name, image_path, destination):
 
-    dir_path = '/afs/crc.nd.edu/user/d/darun/if-copy2/recognition/arcface_torch/results/'
+    dir_path = '/afs/crc.nd.edu/user/d/darun/if-copy/recognition/arcface_torch/results/'
     model_path = join(dir_path, model_name, 'model.pt')
     
     net = get_model(network, patch_size=int(patch_size), stride=int(stride), 
@@ -39,7 +39,6 @@ def inference(network, patch_size, stride, model_name, image_path, destination):
     return net, output, image_cv, image_tensor
 
 def generate_gradcam(net, image_tensor, pred_class=None):
-he target layer and reshaping as needed.
 
     activations = None
     gradients = None
