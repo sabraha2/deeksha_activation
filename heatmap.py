@@ -6,7 +6,7 @@ from PIL import Image
 from backbones import get_model  
 
 def inference(network, patch_size, stride, model_name, image_path, destination):
-    dir_path = '/afs/crc.nd.edu/user/d/darun/if-copy2/recognition/arcface_torch/results/'
+    dir_path = '/afs/crc.nd.edu/user/d/darun/if-copy/recognition/arcface_torch/results/'
     model_path = join(dir_path, model_name, 'model.pt')
     
     # Build model exactly as during training.
