@@ -16,28 +16,18 @@ def resize_pos_embed(state_dict, model):
         if pos_embed_checkpoint.shape != pos_embed_model.shape:
             num_tokens_checkpoint = pos_embed_checkpoint.shape[1]
             num_tokens_model = pos_embed_model.shape[1]
-            # Check if checkpoint has one less token (assume cls token exists in model)
-            if num_tokens_checkpoint == num_tokens_model - 1:
+            # If there is a class token and the rest form a perfect square:
+            if num_tokens_checkpoint > 1 and int(np.sqrt(num_tokens_checkpoint - 1))**2 == (num_tokens_checkpoint - 1):
                 cls_token = pos_embed_checkpoint[:, :1, :]
                 pos_tokens = pos_embed_checkpoint[:, 1:, :]
-                # Only remove cls token if the remaining tokens form a perfect square
-                if int(np.sqrt(pos_tokens.shape[1])) ** 2 == pos_tokens.shape[1]:
-                    old_size = int(np.sqrt(pos_tokens.shape[1]))
-                    new_size = int(np.sqrt(num_tokens_model - 1))
-                    pos_tokens = pos_tokens.reshape(1, old_size, old_size, -1).permute(0, 3, 1, 2)
-                    pos_tokens = torch.nn.functional.interpolate(pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False)
-                    pos_tokens = pos_tokens.permute(0, 2, 3, 1).reshape(1, new_size * new_size, -1)
-                    state_dict['pos_embed'] = torch.cat([cls_token, pos_tokens], dim=1)
-                else:
-                    # fallback: treat entire embedding as a grid
-                    old_size = int(np.sqrt(num_tokens_checkpoint))
-                    new_size = int(np.sqrt(num_tokens_model))
-                    pos_embed_checkpoint = pos_embed_checkpoint.reshape(1, old_size, old_size, -1).permute(0, 3, 1, 2)
-                    pos_embed_checkpoint = torch.nn.functional.interpolate(pos_embed_checkpoint, size=(new_size, new_size), mode='bicubic', align_corners=False)
-                    pos_embed_checkpoint = pos_embed_checkpoint.permute(0, 2, 3, 1).reshape(1, new_size * new_size, -1)
-                    state_dict['pos_embed'] = pos_embed_checkpoint
+                old_size = int(np.sqrt(pos_tokens.shape[1]))
+                new_size = int(np.sqrt(num_tokens_model - 1))
+                pos_tokens = pos_tokens.reshape(1, old_size, old_size, -1).permute(0, 3, 1, 2)
+                pos_tokens = torch.nn.functional.interpolate(pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False)
+                pos_tokens = pos_tokens.permute(0, 2, 3, 1).reshape(1, new_size * new_size, -1)
+                state_dict['pos_embed'] = torch.cat([cls_token, pos_tokens], dim=1)
             else:
-                # No cls token case (or numbers already match in a different way)
+                # Otherwise, treat the entire embedding as a grid.
                 old_size = int(np.sqrt(num_tokens_checkpoint))
                 new_size = int(np.sqrt(num_tokens_model))
                 pos_embed_checkpoint = pos_embed_checkpoint.reshape(1, old_size, old_size, -1).permute(0, 3, 1, 2)
@@ -82,8 +72,7 @@ def inference(network, patch_size, stride, model_name, image_path, destination):
     dir_path = '/afs/crc.nd.edu/user/d/darun/if-copy/recognition/arcface_torch/results/'
     model_path = join(dir_path, model_name, 'model.pt')
     
-    # IMPORTANT: Make sure get_model uses the provided patch_size and stride.
-    # Here we attempt to force patch_size=(28,28) and stride=(28,28) if desired.
+    # Force desired configuration: here patch_size=(patch_size,patch_size) and stride=(stride,stride)
     net = get_model(network, patch_size=(patch_size, patch_size), stride=(stride, stride), 
                     dropout=0.0, fp16=True, num_features=512).cuda()
     
@@ -116,13 +105,14 @@ def generate_gradcam(net, image_tensor, pred_class=None):
         nonlocal activations
         activations = output.detach()
 
-    def backward_hook(module, grad_in, grad_out):
+    # Use full backward hook to avoid deprecation warning
+    def full_backward_hook(module, grad_input, grad_output):
         nonlocal gradients
-        gradients = grad_out[0].detach()
+        gradients = grad_output[0].detach()
 
     target_layer = net.blocks[-1].attn
     handle_forward = target_layer.register_forward_hook(forward_hook)
-    handle_backward = target_layer.register_backward_hook(backward_hook)
+    handle_backward = target_layer.register_full_backward_hook(full_backward_hook)
     
     output = net(image_tensor)
     if pred_class is None:
@@ -135,15 +125,25 @@ def generate_gradcam(net, image_tensor, pred_class=None):
     handle_forward.remove()
     handle_backward.remove()
     
-    if activations.size(1) > 1:
+    num_tokens = activations.size(1)
+    # Try removing CLS token if it makes the tokens a perfect square
+    if num_tokens > 1 and int(np.sqrt(num_tokens - 1))**2 == (num_tokens - 1):
         activations = activations[:, 1:, :]
         gradients = gradients[:, 1:, :]
+        num_tokens = activations.size(1)
     
-    num_tokens = activations.size(1)
-    grid_size = int(num_tokens ** 0.5)
-    if grid_size * grid_size != num_tokens:
-        raise ValueError("The number of tokens does not form a perfect square grid.")
+    # If tokens still don't form a perfect square, pad them.
+    grid_side = int(np.ceil(np.sqrt(num_tokens)))
+    expected_tokens = grid_side * grid_side
+    if expected_tokens != num_tokens:
+        pad_tokens = expected_tokens - num_tokens
+        pad_shape = (activations.size(0), pad_tokens, activations.size(2))
+        activations = torch.cat([activations, torch.zeros(pad_shape, device=activations.device)], dim=1)
+        pad_shape_grad = (gradients.size(0), pad_tokens, gradients.size(2))
+        gradients = torch.cat([gradients, torch.zeros(pad_shape_grad, device=gradients.device)], dim=1)
+        num_tokens = activations.size(1)
     
+    grid_size = int(np.sqrt(num_tokens))
     activations = activations.reshape(1, grid_size, grid_size, -1).permute(0, 3, 1, 2)
     gradients = gradients.reshape(1, grid_size, grid_size, -1).permute(0, 3, 1, 2)
     
@@ -159,8 +159,8 @@ def generate_gradcam(net, image_tensor, pred_class=None):
 
 if __name__ == "__main__":
     network = "vit_t" 
-    patch_size = 28    # Force desired patch size (e.g., 28) 
-    stride = 28        # Force desired stride (e.g., 28)
+    patch_size = 28    # Training used patch_size=28
+    stride = 28        # Training used stride=28
     model_name = "vit_t_dp005_mask0_p28_s28_original_4"
     image_path = "/store01/flynn/darun/AWE-Ex_New_images_lr/220_R/10.png"  
     destination = "./"  
