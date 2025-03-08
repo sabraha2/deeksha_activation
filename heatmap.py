@@ -12,8 +12,8 @@ from backbones import get_model
 def inference(network, patch_size, stride, model_name, image_path, destination):
     dir_path = '/afs/crc.nd.edu/user/d/darun/if-copy/recognition/arcface_torch/results/'
     model_path = join(dir_path, model_name, 'model.pt')
-    
-    net = get_model(network, patch_size=(patch_size, patch_size), stride=(stride, stride), 
+
+    net = get_model(network, patch_size=patch_size, stride=stride, 
                     dropout=0.0, fp16=True, num_features=512).cuda()
     
     state_dict = torch.load(model_path, map_location="cuda")
@@ -27,7 +27,7 @@ def inference(network, patch_size, stride, model_name, image_path, destination):
     ])
 
     image = Image.open(image_path).convert('RGB')
-    image_cv = cv2.cvtColor(np.array(image.resize((112, 112))), cv2.COLOR_RGB2BGR)
+    image_cv = cv2.cvtColor(np.array(image.resize((112,112))), cv2.COLOR_RGB2BGR)
     image_tensor = transform(image).unsqueeze(0).cuda()
     
     output = net(image_tensor)
