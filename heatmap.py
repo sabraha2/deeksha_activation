@@ -9,14 +9,75 @@ from PIL import Image
 from torchvision import transforms
 from backbones import get_model  
 
+def resize_pos_embed(state_dict, model):
+    if 'pos_embed' in state_dict:
+        pos_embed_checkpoint = state_dict['pos_embed']  # shape: [1, old_num, C]
+        pos_embed_model = model.pos_embed                # shape: [1, new_num, C]
+        if pos_embed_checkpoint.shape != pos_embed_model.shape:
+            cls_token = pos_embed_checkpoint[:, :1, :]
+            pos_tokens = pos_embed_checkpoint[:, 1:, :]
+            old_num = pos_tokens.shape[1]
+            new_num = pos_embed_model.shape[1] - 1
+            old_size = int(np.sqrt(old_num))
+            new_size = int(np.sqrt(new_num))
+            pos_tokens = pos_tokens.reshape(1, old_size, old_size, -1).permute(0, 3, 1, 2)
+            pos_tokens = torch.nn.functional.interpolate(
+                pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False
+            )
+            pos_tokens = pos_tokens.permute(0, 2, 3, 1).reshape(1, new_size * new_size, -1)
+            state_dict['pos_embed'] = torch.cat([cls_token, pos_tokens], dim=1)
+    return state_dict
+
+def resize_patch_embed_weight(state_dict, model):
+    if 'patch_embed.linear.weight' in state_dict:
+        weight_checkpoint = state_dict['patch_embed.linear.weight']  # shape: [out_dim, old_patch_dim*3]
+        weight_model = model.patch_embed.linear.weight                # shape: [out_dim, new_patch_dim*3]
+        if weight_checkpoint.shape != weight_model.shape:
+            out_dim = weight_checkpoint.shape[0]
+            old_patch_dim = weight_checkpoint.shape[1] // 3
+            new_patch_dim = weight_model.shape[1] // 3
+            old_size = int(np.sqrt(old_patch_dim))
+            new_size = int(np.sqrt(new_patch_dim))
+            weight_checkpoint = weight_checkpoint.view(out_dim, 3, old_size, old_size)
+            weight_resized = torch.nn.functional.interpolate(
+                weight_checkpoint, size=(new_size, new_size), mode='bicubic', align_corners=False
+            )
+            weight_resized = weight_resized.view(out_dim, 3 * new_size * new_size)
+            state_dict['patch_embed.linear.weight'] = weight_resized
+    return state_dict
+
+def resize_feature_weight(state_dict, model):
+    if 'feature.0.weight' in state_dict:
+        weight_checkpoint = state_dict['feature.0.weight']  # shape: [out_dim, old_dim]
+        weight_model = model.feature[0].weight                # shape: [out_dim, new_dim]
+        if weight_checkpoint.shape != weight_model.shape:
+            out_dim = weight_checkpoint.shape[0]
+            old_dim = weight_checkpoint.shape[1]
+            new_dim = weight_model.shape[1]
+            old_size = int(np.sqrt(old_dim))
+            new_size = int(np.sqrt(new_dim))
+            weight_checkpoint = weight_checkpoint.view(out_dim, 1, old_size, old_size)
+            weight_resized = torch.nn.functional.interpolate(
+                weight_checkpoint, size=(new_size, new_size), mode='bicubic', align_corners=False
+            )
+            weight_resized = weight_resized.view(out_dim, new_size * new_size)
+            state_dict['feature.0.weight'] = weight_resized
+    return state_dict
+
 def inference(network, patch_size, stride, model_name, image_path, destination):
     dir_path = '/afs/crc.nd.edu/user/d/darun/if-copy/recognition/arcface_torch/results/'
     model_path = join(dir_path, model_name, 'model.pt')
-
-    net = get_model(network, patch_size=patch_size, stride=stride, 
+    
+    # Build model with desired patch configuration. 
+    # (If get_model ignores your input, consider modifying it so that the values are used.)
+    net = get_model(network, patch_size=(patch_size, patch_size), stride=(stride, stride), 
                     dropout=0.0, fp16=True, num_features=512).cuda()
     
     state_dict = torch.load(model_path, map_location="cuda")
+    state_dict = resize_pos_embed(state_dict, net)
+    state_dict = resize_patch_embed_weight(state_dict, net)
+    state_dict = resize_feature_weight(state_dict, net)
+    
     net.load_state_dict(state_dict)
     net.eval()
     
@@ -27,7 +88,7 @@ def inference(network, patch_size, stride, model_name, image_path, destination):
     ])
 
     image = Image.open(image_path).convert('RGB')
-    image_cv = cv2.cvtColor(np.array(image.resize((112,112))), cv2.COLOR_RGB2BGR)
+    image_cv = cv2.cvtColor(np.array(image.resize((112, 112))), cv2.COLOR_RGB2BGR)
     image_tensor = transform(image).unsqueeze(0).cuda()
     
     output = net(image_tensor)
@@ -84,8 +145,8 @@ def generate_gradcam(net, image_tensor, pred_class=None):
 
 if __name__ == "__main__":
     network = "vit_t" 
-    patch_size = 28    
-    stride = 28      
+    patch_size = 28    # training used patch_size=28
+    stride = 28        # training used stride=28
     model_name = "vit_t_dp005_mask0_p28_s28_original_4"
     image_path = "/store01/flynn/darun/AWE-Ex_New_images_lr/220_R/10.png"  
     destination = "./"  
