@@ -22,6 +22,7 @@ def inference(network, patch_size, stride, model_name, image_path, destination):
                     dropout=0.0, fp16=True, num_features=512).cuda()
     
     net.load_state_dict(torch.load(model_path))
+    print(net)
     net.eval().cuda()
     
     transform = transforms.Compose([
