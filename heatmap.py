@@ -25,7 +25,7 @@ def inference(network, patch_size, stride, model_name, image_path, destination):
     transform = transforms.Compose([
         transforms.Resize((112, 112)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5]),
     ])
     
     image = Image.open(image_path).convert('RGB')
@@ -36,23 +36,24 @@ if __name__ == '__main__':
     network = "vit_t_dp005_mask0"
     patch_size = 28
     stride = 28
-    model_name = "vit_t_dp005_mask0_p28_s28_original_4"  # Update if necessary.
+    model_name = "vit_t_dp005_mask0_p28_s28_original_4"  # Adjust if necessary.
     image_path = "/store01/flynn/darun/AWE-Ex_New_images_lr/220_R/10.png"
     destination = "./"
     
-    # Load the model and image.
+    # Load the model and image tensor.
     net, img_tensor = inference(network, patch_size, stride, model_name, image_path, destination)
     
-    # Prepare a numpy version of the image for overlay.
-    img = Image.open(image_path).convert("RGB")
-    img_np = np.array(img.resize((112,112))) / 255.0
+    # Prepare numpy image for overlay.
+    img = Image.open(image_path).convert("RGB").resize((112, 112))
+    img_np = np.array(img) / 255.0
     
-    # Choose a target layer that has spatial features.
-    # For example, using the patch embedding layer which outputs a spatial feature map.
-    target_layer = net.patch_embed  # Ensure this layer produces a spatial map.
+    # Choose a target layer with spatial features. Here we use the patch_embed layer.
+    target_layer = net.patch_embed
     
-    # Create a GradCAM object and compute the CAM.
-    cam_extractor = GradCAM(model=net, target_layers=[target_layer], use_cuda=True)
+    # Create the GradCAM object. (Note: 'use_cuda' is not supported in your version.)
+    cam_extractor = GradCAM(model=net, target_layers=[target_layer])
+    
+    # Compute the CAM.
     grayscale_cam = cam_extractor(input_tensor=img_tensor)[0, :]
     
     # Overlay the CAM on the image.
