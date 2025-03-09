@@ -92,4 +92,3 @@ if __name__ == '__main__':
     plt.axis('off')
     plt.title(f'Grad-CAM for class {pred_class}')
     plt.savefig("test_cam.png")
-=
