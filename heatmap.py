@@ -57,8 +57,8 @@ if __name__ == '__main__':
     net, output = inference(network, patch_size, stride, model_name, image_path, destination)
     
 
-    handle_forward = net.blocks[-1].attn.register_forward_hook(forward_hook)
-    handle_backward = net.blocks[-1].attn.register_backward_hook(backward_hook)
+    handle_forward = net.blocks[-1].attn.out_proj.register_forward_hook(forward_hook)
+    handle_backward = net.blocks[-1].attn.out_proj.register_full_backward_hook(backward_hook)
     
     pred_class = output.argmax(dim=1).item()
     net.zero_grad()
