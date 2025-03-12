@@ -88,4 +88,4 @@ if __name__ == '__main__':
         plt.colorbar()
         plt.title(f"Activation for {layer_name}")
         plt.savefig(f"activation_{layer_name}.png")
-        plt.show()
+        # plt.show()
