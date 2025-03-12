@@ -8,6 +8,10 @@ import matplotlib.pyplot as plt
 from torchvision import transforms
 from PIL import Image
 from backbones import get_model
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Global variables to store hook outputs.
 activations = {}
@@ -89,24 +93,38 @@ if __name__ == '__main__':
     remove_hooks(hooks)
     
     for layer_name, grad in gradients.items():
-        if grad is None or activations[layer_name] is None:
-            raise ValueError(f"Failed to capture gradients or activations for {layer_name}.")
+        if grad is None or activations.get(layer_name) is None:
+            logging.error(f"Gradients or activations not captured for {layer_name}, skipping this layer.")
+            continue
         
         weights = torch.mean(grad, dim=[2,3], keepdim=True)
         cam = torch.sum(weights * activations[layer_name], dim=1).squeeze()
         cam = F.relu(cam)
+        
+        if cam.numel() == 0:
+            logging.error(f"Empty CAM for {layer_name}, skipping visualization.")
+            continue
+        
         cam = cam - cam.min()
         cam = cam / (cam.max() + 1e-8)
         cam = cam.cpu().numpy()
         
         img = np.array(Image.open(image_path).convert("RGB").resize((112,112)))
-        cam = cv2.resize(cam, (img.shape[1], img.shape[0]))
-        heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
-        overlay = cv2.addWeighted(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), 0.5, heatmap, 0.5, 0)
         
-        plt.figure(figsize=(8,6))
-        plt.imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
-        plt.axis("off")
-        plt.title(f"Grad-CAM for {layer_name} - class {pred_class}")
-        plt.savefig(f"gradcam_{layer_name}.png")
-        plt.show()
+        if cam.shape != (112, 112):
+            logging.warning(f"Resizing CAM from {cam.shape} to (112,112) for {layer_name}.")
+        
+        try:
+            cam = cv2.resize(cam, (img.shape[1], img.shape[0]))
+            heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
+            overlay = cv2.addWeighted(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), 0.5, heatmap, 0.5, 0)
+            
+            plt.figure(figsize=(8,6))
+            plt.imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
+            plt.axis("off")
+            plt.title(f"Grad-CAM for {layer_name} - class {pred_class}")
+            plt.savefig(f"gradcam_{layer_name}.png")
+            # plt.show()
+        except cv2.error as e:
+            logging.error(f"OpenCV error when processing {layer_name}: {e}")
+            continue
