@@ -76,8 +76,15 @@ if __name__ == '__main__':
         
         logging.info(f"Layer: {layer_name}, Activation shape: {activation.shape}")
         
+        if activation.ndim == 1:
+            logging.warning(f"Skipping visualization for {layer_name} due to incompatible shape {activation.shape}.")
+            continue
+        
         plt.figure(figsize=(8,6))
-        plt.imshow(activation.mean(axis=0), cmap='viridis')  # Taking mean over channels if needed
+        if activation.ndim == 3:
+            plt.imshow(activation.mean(axis=0), cmap='viridis')  # Taking mean over channels
+        elif activation.ndim == 2:
+            plt.imshow(activation, cmap='viridis')
         plt.colorbar()
         plt.title(f"Activation for {layer_name}")
         plt.savefig(f"activation_{layer_name}.png")
