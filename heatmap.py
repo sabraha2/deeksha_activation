@@ -58,6 +58,7 @@ if __name__ == '__main__':
     destination = "./"
     
     net, img_tensor = inference(network, patch_size, stride, model_name, image_path, destination)
+    print(net)
     
     # Register hooks on the linear layer inside patch_embed.
     handle_forward = net.patch_embed.linear.register_forward_hook(forward_hook)
