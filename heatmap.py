@@ -33,7 +33,7 @@ def inference(network, patch_size, stride, model_name, image_path):
     
     image = Image.open(image_path).convert("RGB")
     image_tensor = transform(image).unsqueeze(0).cuda()
-    return net, image_tensor
+    return net, image_tensor, image
 
 def forward_hook(layer_name):
     def hook(module, input, output):
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     model_name = "vit_t_dp005_mask0_p28_s28_original_4"
     image_path = "/store01/flynn/darun/AWE-Ex_New_images_lr/220_R/10.png"
     
-    net, img_tensor = inference(network, patch_size, stride, model_name, image_path)
+    net, img_tensor, orig_img = inference(network, patch_size, stride, model_name, image_path)
     
     hooks = register_hooks(net)
     
@@ -80,12 +80,24 @@ if __name__ == '__main__':
             logging.warning(f"Skipping visualization for {layer_name} due to incompatible shape {activation.shape}.")
             continue
         
-        plt.figure(figsize=(8,6))
+        # Compute mean activation over all channels
         if activation.ndim == 3:
-            plt.imshow(activation.mean(axis=0), cmap='viridis')  # Taking mean over channels
-        elif activation.ndim == 2:
-            plt.imshow(activation, cmap='viridis')
-        plt.colorbar()
-        plt.title(f"Activation for {layer_name}")
-        plt.savefig(f"activation_{layer_name}.png")
-        # plt.show()
+            activation = activation.mean(axis=0)
+        
+        # Normalize activation map
+        activation = activation - activation.min()
+        activation = activation / (activation.max() + 1e-8)
+        
+        # Resize activation map to match image dimensions
+        activation = cv2.resize(activation, (orig_img.size[0], orig_img.size[1]))
+        
+        # Convert to heatmap
+        heatmap = cv2.applyColorMap(np.uint8(255 * activation), cv2.COLORMAP_JET)
+        overlay = cv2.addWeighted(cv2.cvtColor(np.array(orig_img), cv2.COLOR_RGB2BGR), 0.5, heatmap, 0.5, 0)
+        
+        # Save and show the overlayed image
+        plt.figure(figsize=(8,6))
+        plt.imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
+        plt.axis("off")
+        plt.title(f"Activation Overlay for {layer_name}")
+        plt.savefig(f"activation_overlay_{layer_name}.png")
