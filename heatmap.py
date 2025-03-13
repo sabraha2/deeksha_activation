@@ -69,14 +69,14 @@ if __name__ == '__main__':
     
     for layer_name, activation in activations.items():
         if activation is None or activation.numel() == 0:
-            logging.error(f"No activations captured for {layer_name}.")
+            logging.error(f"No activations captured for {layer_name}, skipping.")
             continue
         
         activation = activation.squeeze().cpu().numpy()
         
         logging.info(f"Layer: {layer_name}, Activation shape: {activation.shape}")
         
-        if activation.ndim == 1:
+        if activation.ndim == 1 or activation.ndim > 3:
             logging.warning(f"Skipping visualization for {layer_name} due to incompatible shape {activation.shape}.")
             continue
         
@@ -86,10 +86,23 @@ if __name__ == '__main__':
         
         # Normalize activation map
         activation = activation - activation.min()
-        activation = activation / (activation.max() + 1e-8)
+        if activation.max() > 0:
+            activation = activation / activation.max()
+        else:
+            logging.warning(f"Skipping {layer_name} due to zero max activation.")
+            continue
         
-        # Resize activation map to match image dimensions
-        activation = cv2.resize(activation, (orig_img.size[0], orig_img.size[1]))
+        # Ensure activation can be resized
+        if activation.shape[0] < 2 or activation.shape[1] < 2:
+            logging.warning(f"Skipping {layer_name} due to small activation shape {activation.shape}.")
+            continue
+        
+        try:
+            # Resize activation map to match image dimensions
+            activation = cv2.resize(activation, (orig_img.size[0], orig_img.size[1]))
+        except cv2.error as e:
+            logging.error(f"OpenCV error resizing activation for {layer_name}: {e}")
+            continue
         
         # Convert to heatmap
         heatmap = cv2.applyColorMap(np.uint8(255 * activation), cv2.COLORMAP_JET)
