@@ -67,6 +67,9 @@ if __name__ == '__main__':
     
     remove_hooks(hooks)
     
+    averaged_activation = None
+    valid_layers = 0
+    
     for layer_name, activation in activations.items():
         if activation is None or activation.numel() == 0:
             logging.error(f"No activations captured for {layer_name}, skipping.")
@@ -104,13 +107,22 @@ if __name__ == '__main__':
             logging.error(f"OpenCV error resizing activation for {layer_name}: {e}")
             continue
         
+        if averaged_activation is None:
+            averaged_activation = activation
+        else:
+            averaged_activation += activation
+        valid_layers += 1
+    
+    if averaged_activation is not None and valid_layers > 0:
+        averaged_activation /= valid_layers
+        
         # Convert to heatmap
-        heatmap = cv2.applyColorMap(np.uint8(255 * activation), cv2.COLORMAP_JET)
+        heatmap = cv2.applyColorMap(np.uint8(255 * averaged_activation), cv2.COLORMAP_JET)
         overlay = cv2.addWeighted(cv2.cvtColor(np.array(orig_img), cv2.COLOR_RGB2BGR), 0.5, heatmap, 0.5, 0)
         
         # Save and show the overlayed image
         plt.figure(figsize=(8,6))
         plt.imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
         plt.axis("off")
-        plt.title(f"Activation Overlay for {layer_name}")
-        plt.savefig(f"activation_overlay_{layer_name}.png")
+        plt.title("Averaged Activation Overlay for All Layers")
+        plt.savefig("activation_overlay_all_layers.png")
