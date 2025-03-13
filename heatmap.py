@@ -71,6 +71,10 @@ if __name__ == '__main__':
     valid_layers = 0
     
     for layer_name, activation in activations.items():
+        if "attn" not in layer_name:
+            logging.info(f"Skipping {layer_name} as it is not an attention layer.")
+            continue
+        
         if activation is None or activation.numel() == 0:
             logging.error(f"No activations captured for {layer_name}, skipping.")
             continue
@@ -124,5 +128,5 @@ if __name__ == '__main__':
         plt.figure(figsize=(8,6))
         plt.imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
         plt.axis("off")
-        plt.title("Averaged Activation Overlay for All Layers")
-        plt.savefig("activation_overlay_all_layers.png")
+        plt.title("Averaged Activation Overlay for Attention Layers")
+        plt.savefig("activation_overlay_attention_layers.png")
